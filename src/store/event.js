@@ -2,6 +2,15 @@ import { defineStore } from 'pinia'
 
 const j = (p, o) => fetch(p, o).then(r => r.json())
 
+// 淘汰赛胜方：比分高者胜；平局时取记录的决胜方（加时/点球），未决胜返回 null
+export function matchWinnerOf(m) {
+  if (m?.status !== 'finished') return null
+  if (m.score_a > m.score_b) return m.teamA
+  if (m.score_b > m.score_a) return m.teamB
+  return m.winner ? (m.winner === m.teamA?.id ? m.teamA : m.teamB) : null
+}
+export function isKOMatch(m) { return ['半决赛', '决赛', '季军'].includes(m?.stage) }
+
 export const useEventStore = defineStore('event', {
   state: () => ({
     sports: [], teams: [], units: [], venues: [], referees: [],
@@ -31,9 +40,10 @@ export const useEventStore = defineStore('event', {
       for (const s of this.sports) st[s.id] = await j('/api/standings/' + s.id)
       this.standings = st
     },
-    async score(mid, sa, sb) {
-      await j('/api/matches/' + mid + '/score', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ score_a: sa, score_b: sb }) })
+    async score(mid, sa, sb, winner) {
+      const r = await j('/api/matches/' + mid + '/score', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ score_a: sa, score_b: sb, winner: winner ?? null }) })
       await this.refresh()
+      return r
     },
     async genKO(sid) { const r = await j('/api/ko/' + sid, { method: 'POST' }); await this.refresh(); return r.msg },
     async saveTrack(sid, list) { await j('/api/track/' + sid, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(list) }); await this.refresh() },

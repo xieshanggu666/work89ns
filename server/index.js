@@ -90,6 +90,21 @@ function seed() {
 
   recomputeMedals()
 }
+/* ================= 淘汰赛决胜 ================= */
+const KO_STAGES = ['半决赛', '决赛', '季军']
+const isKOStage = m => KO_STAGES.includes(m.stage)
+// 淘汰赛胜方：比分高者胜；平局时取记录的决胜方（加时/点球），未决胜返回 null
+function matchWinner(m) {
+  if (!m || m.status !== 'finished') return null
+  if (m.score_a > m.score_b) return m.team_a
+  if (m.score_b > m.score_a) return m.team_b
+  return m.winner ?? null
+}
+function matchLoser(m) {
+  const w = matchWinner(m)
+  if (w == null) return null
+  return w === m.team_a ? m.team_b : m.team_a
+}
 /* ================= 积分与奖牌 ================= */
 function rebuildStandings(sportId) {
   const sports = sportId ? [sportId] : all('SELECT * FROM sports').map(s => s.id)
@@ -140,36 +155,29 @@ function recomputeMedals() {
       if (all('SELECT * FROM standings WHERE sport_id=?', spo.id).some(r => r.play > 0)) { add(champ?.unit_id, 'gold'); add(second?.unit_id, 'silver'); add(third?.unit_id, 'bronze') }
     } else {
       const fin = get(`SELECT * FROM matches WHERE sport_id=? AND status='finished' AND stage='决赛'`, spo.id)
-      if (fin) { add(unitOfTeam(fin.score_a > fin.score_b ? fin.team_a : fin.team_b), 'gold'); add(unitOfTeam(fin.score_a > fin.score_b ? fin.team_b : fin.team_a), 'silver') }
+      if (fin) {
+        const w = matchWinner(fin), l = matchLoser(fin)
+        // 决赛平局未决胜（无加时/点球胜方）时不结算金银，避免奖牌错发
+        if (w != null) { add(unitOfTeam(w), 'gold'); add(unitOfTeam(l), 'silver') }
+      }
       const thirdM = get(`SELECT * FROM matches WHERE sport_id=? AND status='finished' AND stage='季军'`, spo.id)
-      if (thirdM) add(unitOfTeam(thirdM.score_a > thirdM.score_b ? thirdM.team_a : thirdM.team_b), 'bronze')
+      if (thirdM) { const w = matchWinner(thirdM); if (w != null) add(unitOfTeam(w), 'bronze') }
     }
   })
 }
 /* ================= 编排下一轮（KO） ================= */
 const STAGE_ORDER = { '小组': 1, '循环': 1, '半决赛': 2, '决赛': 3, '季军': 3 }
-function finishMatch(id, sa, sb) {
+function finishMatch(id, sa, sb, winner = null) {
   const m = get('SELECT * FROM matches WHERE id=?', id)
-  run('UPDATE matches SET score_a=?, score_b=?, status=\'finished\' WHERE id=?', sa, sb, id)
+  run('UPDATE matches SET score_a=?, score_b=?, winner=?, status=\'finished\' WHERE id=?', sa, sb, winner, id)
   rebuildStandings(m.sport_id)
   recomputeMedals()
 }
 function generateKO(sportId) {
   const spo = get('SELECT * FROM sports WHERE id=?', sportId)
+  if (!spo) return null
   if (spo.format === 'knockout') {
-    // 羽毛球：半决赛是否已全部完成
-    const semis = all(`SELECT * FROM matches WHERE sport_id=? AND stage='半决赛'`, sportId)
-    const hasFinal = get(`SELECT id FROM matches WHERE sport_id=? AND stage='决赛'`, sportId)
-    if (semis.length && semis.every(s => s.status === 'finished') && !hasFinal) {
-      const w1 = semis[0].score_a > semis[0].score_b ? semis[0].team_a : semis[0].team_b
-      const w2 = semis[1].score_a > semis[1].score_b ? semis[1].team_a : semis[1].team_b
-      const l1 = w1 === semis[0].team_a ? semis[0].team_b : semis[0].team_a
-      const l2 = w2 === semis[1].team_a ? semis[1].team_b : semis[1].team_a
-      run('INSERT INTO matches (sport_id,stage,team_a,team_b,venue_id,order_no,time_label,status) VALUES (?,?,?,?,?,?,?,?)', sportId, '决赛', w1, w2, 3, 9, '13:00', 'scheduled')
-      run('INSERT INTO matches (sport_id,stage,team_a,team_b,venue_id,order_no,time_label,status) VALUES (?,?,?,?,?,?,?,?)', sportId, '季军', l1, l2, 5, 10, '12:30', 'scheduled')
-      return '已生成羽毛球 决赛 与 季军战'
-    }
-    return null
+    return buildFinalAndThird(sportId, { finalVenue: 3, finalOrder: 9, finalTime: '13:00', thirdVenue: 5, thirdOrder: 10, thirdTime: '12:30', msg: '已生成羽毛球 决赛 与 季军战' })
   }
   // group_knockout：小组完成后生成半决赛，半决赛完成后生成决赛
   const groups = ['A组', 'B组']
@@ -182,7 +190,8 @@ function generateKO(sportId) {
   if (groups.every(g => done[g]) && !hasSemi) {
     const rankOf = g => {
       const ids = all(`SELECT DISTINCT team_a id FROM matches WHERE sport_id=? AND group_name=? AND team_a IS NOT NULL UNION SELECT DISTINCT team_b FROM matches WHERE sport_id=? AND group_name=? AND team_b IS NOT NULL`, sportId, g, sportId, g).map(r => r.id)
-      return ids.map(id => ({ id, pts: get('SELECT points p FROM standings WHERE sport_id=? AND team_id=?', sportId, id)?.p ?? -1 })).sort((a, b) => b.pts - a.pts).map(r => r.id)
+      // 与积分榜同一排名口径（积分→净胜球→进球→id），保证淘汰对阵与排名一致
+      return ids.map(id => ({ id, rank: get('SELECT rank FROM standings WHERE sport_id=? AND team_id=?', sportId, id)?.rank ?? 999 })).sort((a, b) => a.rank - b.rank).map(r => r.id)
     }
     const A = rankOf('A组'), B = rankOf('B组')
     if (A.length >= 2 && B.length >= 2) {
@@ -192,18 +201,43 @@ function generateKO(sportId) {
     }
     return null
   }
-  const semis = all(`SELECT * FROM matches WHERE sport_id=? AND stage='半决赛'`, sportId)
-  const hasFinal = get(`SELECT id FROM matches WHERE sport_id=? AND stage='决赛'`, sportId)
-  if (semis.length && semis.every(s => s.status === 'finished') && !hasFinal) {
-    const w1 = semis[0].score_a > semis[0].score_b ? semis[0].team_a : semis[0].team_b
-    const w2 = semis[1].score_a > semis[1].score_b ? semis[1].team_a : semis[1].team_b
-    const l1 = w1 === semis[0].team_a ? semis[0].team_b : semis[0].team_a
-    const l2 = w2 === semis[1].team_a ? semis[1].team_b : semis[1].team_a
-    run('INSERT INTO matches (sport_id,stage,team_a,team_b,venue_id,order_no,time_label,status) VALUES (?,?,?,?,?,?,?,?)', sportId, '决赛', w1, w2, 2, 101, '16:00', 'scheduled')
-    run('INSERT INTO matches (sport_id,stage,team_a,team_b,venue_id,order_no,time_label,status) VALUES (?,?,?,?,?,?,?,?)', sportId, '季军', l1, l2, 5, 102, '15:30', 'scheduled')
-    return '已生成决赛 与 季军战'
+  return buildFinalAndThird(sportId, { finalVenue: 2, finalOrder: 101, finalTime: '16:00', thirdVenue: 5, thirdOrder: 102, thirdTime: '15:30', msg: '已生成决赛 与 季军战' })
+}
+// 由半决赛结果校正已生成的决赛/季军对阵（未完赛才更新；平局未决胜则删除错误对阵）
+function syncFinalAndThird(sportId) {
+  const semis = all(`SELECT * FROM matches WHERE sport_id=? AND stage='半决赛' ORDER BY order_no, id`, sportId)
+  if (semis.length !== 2 || !semis.every(s => s.status === 'finished')) return
+  const w1 = matchWinner(semis[0]), w2 = matchWinner(semis[1])
+  const fin = get(`SELECT * FROM matches WHERE sport_id=? AND stage='决赛'`, sportId)
+  if (!fin || fin.status === 'finished') return
+  if (w1 == null || w2 == null) {
+    run(`DELETE FROM matches WHERE sport_id=? AND stage IN ('决赛','季军') AND status='scheduled'`, sportId)
+    return
   }
-  return null
+  run('UPDATE matches SET team_a=?, team_b=? WHERE id=?', w1, w2, fin.id)
+  const third = get(`SELECT * FROM matches WHERE sport_id=? AND stage='季军'`, sportId)
+  if (third && third.status === 'scheduled') {
+    run('UPDATE matches SET team_a=?, team_b=? WHERE id=?', matchLoser(semis[0]), matchLoser(semis[1]), third.id)
+  }
+}
+// 生成（或校正）决赛与季军战；半决赛平局未决胜时返回提示
+function buildFinalAndThird(sportId, cfg) {
+  const semis = all(`SELECT * FROM matches WHERE sport_id=? AND stage='半决赛' ORDER BY order_no, id`, sportId)
+  if (!semis.length || !semis.every(s => s.status === 'finished')) return null
+  const w1 = matchWinner(semis[0]), w2 = matchWinner(semis[1])
+  if (w1 == null || w2 == null) {
+    run(`DELETE FROM matches WHERE sport_id=? AND stage IN ('决赛','季军') AND status='scheduled'`, sportId)
+    return '半决赛出现平局且未指定决胜方，请先在成绩录入中选择加时/点球胜方'
+  }
+  syncFinalAndThird(sportId)
+  const hasFinal = get(`SELECT * FROM matches WHERE sport_id=? AND stage='决赛'`, sportId)
+  if (!hasFinal) {
+    run('INSERT INTO matches (sport_id,stage,team_a,team_b,venue_id,order_no,time_label,status) VALUES (?,?,?,?,?,?,?,?)', sportId, '决赛', w1, w2, cfg.finalVenue, cfg.finalOrder, cfg.finalTime, 'scheduled')
+    run('INSERT INTO matches (sport_id,stage,team_a,team_b,venue_id,order_no,time_label,status) VALUES (?,?,?,?,?,?,?,?)', sportId, '季军', matchLoser(semis[0]), matchLoser(semis[1]), cfg.thirdVenue, cfg.thirdOrder, cfg.thirdTime, 'scheduled')
+    return cfg.msg
+  }
+  if (hasFinal.status === 'finished') return null
+  return '已根据半决赛结果更新决赛与季军战对阵'
 }
 function finishTrack(sportId, body) {
   // body: [{athlete_id, mark}] 按顺序
@@ -251,11 +285,28 @@ app.get('/api/overview', (_, res) => {
   })
 })
 app.post('/api/matches/:id/score', (req, res) => {
-  const { score_a, score_b } = req.body
+  const { score_a, score_b, winner } = req.body
   const m = get('SELECT * FROM matches WHERE id=?', Number(req.params.id))
   if (!m) return res.status(404).json({ error: '场次不存在' })
   if (m.team_a == null || m.team_b == null) return res.status(400).json({ error: '对阵尚未编排，先编排淘汰赛' })
-  finishMatch(m.id, Number(score_a), Number(score_b))
+  const sa = Number(score_a), sb = Number(score_b)
+  if (!Number.isFinite(sa) || !Number.isFinite(sb) || sa < 0 || sb < 0) return res.status(400).json({ error: '比分不合法' })
+  let decider = null
+  if (isKOStage(m)) {
+    // 半决赛：决赛/季军已完赛后不允许改比分，否则晋级、奖牌与后续编排全部错位
+    if (m.stage === '半决赛') {
+      const fin = get(`SELECT id FROM matches WHERE sport_id=? AND stage IN ('决赛','季军') AND status='finished'`, m.sport_id)
+      if (fin) return res.status(400).json({ error: '决赛/季军已完赛，修改半决赛会导致晋级与奖牌结果不一致；如需修改请先重置该项目淘汰赛' })
+    }
+    // 淘汰赛允许平局（加时/点球），但必须记录决胜方，晋级与奖牌均以决胜方为准
+    if (sa === sb) {
+      if (winner !== m.team_a && winner !== m.team_b) return res.status(400).json({ error: '淘汰赛出现平局，必须指定决胜方（加时/点球胜方）' })
+      decider = winner
+    }
+  }
+  finishMatch(m.id, sa, sb, decider)
+  // 半决赛后联动校正已生成的决赛/季军对阵，保证后续编排与真实晋级一致
+  if (m.stage === '半决赛') syncFinalAndThird(m.sport_id)
   res.json({ ok: true })
 })
 app.post('/api/ko/:sportId', (req, res) => {

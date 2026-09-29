@@ -1,6 +1,6 @@
 <script setup>
 import { ref, computed } from 'vue'
-import { useEventStore } from '@/store/event'
+import { useEventStore, matchWinnerOf, isKOMatch } from '@/store/event'
 const store = useEventStore()
 const cur = ref('all')
 const ballSports = computed(() => store.sports.filter(s => s.format !== 'track'))
@@ -26,8 +26,7 @@ const stages = computed(() => {
     { name: '季军战', items: ms.filter(m => m.stage === '季军') }
   ]
 })
-function w(m) { return m.status === 'finished' ? (m.score_a > m.score_b ? m.teamA : m.teamB) : null }
-function l(m) { return m.status === 'finished' ? (m.score_a > m.score_b ? m.teamB : m.teamA) : null }
+const w = m => matchWinnerOf(m)
 </script>
 
 <template>
@@ -66,11 +65,12 @@ function l(m) { return m.status === 'finished' ? (m.score_a > m.score_b ? m.team
         <div class="pad" style="display:flex;flex-direction:column;gap:9px">
           <div v-for="m in st.items" :key="m.id" class="mcard" :class="{ done: m.status==='finished' }">
             <div class="mrow">
-              <span class="t" :class="{ win: m.status==='finished' && (m.score_a>m.score_b) }"><span class="badge"><span class="dot" :style="{ background: store.unitOfUid(m.teamA?.unit_id)?.color }"></span>{{ m.teamA?.name || '待定' }}</span></span>
+              <span class="t" :class="{ win: w(m)?.id===m.teamA?.id }"><span class="badge"><span class="dot" :style="{ background: store.unitOfUid(m.teamA?.unit_id)?.color }"></span>{{ m.teamA?.name || '待定' }}<span v-if="w(m)?.id===m.teamA?.id" class="tag g" style="margin-left:6px">胜</span></span></span>
               <span class="score-chip" v-if="m.status==='finished'">{{ m.score_a }}:{{ m.score_b }}</span>
               <span class="score-chip ph" v-else>VS</span>
-              <span class="t" :class="{ win: m.status==='finished' && (m.score_b>m.score_a) }" style="text-align:right"><span class="badge">{{ m.teamB?.name || '待定' }}<span class="dot" :style="{ background: store.unitOfUid(m.teamB?.unit_id)?.color }"></span></span></span>
+              <span class="t" :class="{ win: w(m)?.id===m.teamB?.id }" style="text-align:right"><span class="badge">{{ m.teamB?.name || '待定' }}<span v-if="w(m)?.id===m.teamB?.id" class="tag g" style="margin-left:6px">胜</span><span class="dot" :style="{ background: store.unitOfUid(m.teamB?.unit_id)?.color }"></span></span></span>
             </div>
+            <div v-if="isKOMatch(m) && m.status==='finished' && m.score_a===m.score_b" style="font-size:11px;color:var(--muted);margin-top:6px">⚖️ 平局 · {{ w(m) ? '决胜：' + w(m).name + ' 胜' : '⚠ 待决胜（晋级/奖牌暂未结算）' }}</div>
           </div>
         </div>
       </div>

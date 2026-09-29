@@ -54,6 +54,7 @@ CREATE TABLE IF NOT EXISTS matches (
   time_label TEXT,
   score_a INTEGER,
   score_b INTEGER,
+  winner INTEGER,             -- 淘汰赛平局决胜（加时/点球）胜方队伍id
   status TEXT DEFAULT 'scheduled'   -- scheduled / finished
 );
 CREATE TABLE IF NOT EXISTS entries (
@@ -85,6 +86,9 @@ CREATE TABLE IF NOT EXISTS medals (
   bronze INTEGER DEFAULT 0
 );
 `)
+
+// 迁移：为淘汰赛平局决胜增加 winner 字段（旧库补列）
+try { db.exec('ALTER TABLE matches ADD COLUMN winner INTEGER') } catch (e) { /* 列已存在 */ }
 
 export function run(sql, ...p) { return db.prepare(sql).run(...p) }
 export function all(sql, ...p) { return db.prepare(sql).all(...p) }

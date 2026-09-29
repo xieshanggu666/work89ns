@@ -1,6 +1,6 @@
 <script setup>
 import { ref, computed } from 'vue'
-import { useEventStore } from '@/store/event'
+import { useEventStore, matchWinnerOf, isKOMatch } from '@/store/event'
 
 const store = useEventStore()
 const filter = ref('all')
@@ -63,12 +63,15 @@ const canKO = sid => {
               <span>⏱ {{ m.time_label }}</span>
             </div>
             <div class="mrow">
-              <span class="t"><span class="badge"><span class="dot" :style="{ background: store.unitOfUid(m.teamA?.unit_id)?.color }"></span>{{ m.teamA?.name || '待定' }}</span></span>
+              <span class="t"><span class="badge"><span class="dot" :style="{ background: store.unitOfUid(m.teamA?.unit_id)?.color }"></span>{{ m.teamA?.name || '待定' }}<span v-if="matchWinnerOf(m)?.id===m.teamA?.id" class="tag g" style="margin-left:6px">胜</span></span></span>
               <span class="score-chip ph" v-if="m.status==='scheduled'">VS</span>
               <span class="score-chip" v-else>{{ m.score_a }}:{{ m.score_b }}</span>
-              <span class="t" style="text-align:right"><span class="badge">{{ m.teamB?.name || '待定' }}<span class="dot" :style="{ background: store.unitOfUid(m.teamB?.unit_id)?.color }"></span></span></span>
+              <span class="t" style="text-align:right"><span class="badge">{{ m.teamB?.name || '待定' }}<span v-if="matchWinnerOf(m)?.id===m.teamB?.id" class="tag g" style="margin-left:6px">胜</span><span class="dot" :style="{ background: store.unitOfUid(m.teamB?.unit_id)?.color }"></span></span></span>
             </div>
-            <div style="font-size:11px;color:var(--muted);margin-top:8px">📍 {{ m.venue?.name }} <span style="float:right" :class="m.status==='finished' ? 'tag g' : 'tag o'">{{ m.status==='finished' ? '已完赛' : '待赛' }}</span></div>
+            <div style="font-size:11px;color:var(--muted);margin-top:8px">📍 {{ m.venue?.name }}
+              <span style="float:right" :class="m.status==='finished' ? 'tag g' : 'tag o'">{{ m.status==='finished' ? '已完赛' : '待赛' }}</span>
+              <span v-if="isKOMatch(m) && m.status==='finished' && m.score_a===m.score_b" style="float:right;margin-right:8px" :class="m.winner ? 'tag g' : 'tag o'">⚖️ 平局 · {{ m.winner ? '决胜：' + store.teamOf(m.winner)?.name + ' 胜' : '待决胜' }}</span>
+            </div>
           </div>
           <div v-if="!list.filter(x=>x.sport_id===s.id).length" class="empty">暂无场次</div>
         </div>
