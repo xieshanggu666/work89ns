@@ -49,7 +49,7 @@ const prog = computed(() => tot.value ? Math.round((doneTotal.value / Math.max(1
             <div class="mrow">
               <span class="t"><span class="badge"><span class="dot" :style="{ background: store.unitOfUid(m.teamA?.unit_id)?.color }"></span>{{ m.teamA?.name || '待定' }}</span></span>
               <span class="score-chip ph" v-if="m.status==='scheduled'">— : —</span>
-              <span class="score-chip" v-else>{{ m.score_a }} : {{ m.score_b }}</span>
+              <span class="score-chip" v-else>{{ m.score_a }} : {{ m.score_b }}<template v-if="m.tb_a != null">（决胜 {{ m.tb_a }}:{{ m.tb_b }}）</template></span>
               <span class="t" style="text-align:right"><span class="badge">{{ m.teamB?.name || '待定' }}<span class="dot" :style="{ background: store.unitOfUid(m.teamB?.unit_id)?.color }"></span></span></span>
             </div>
           </div>

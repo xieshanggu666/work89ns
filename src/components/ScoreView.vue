@@ -15,13 +15,28 @@ const matches = computed(() => store.matches.filter(m => {
 }))
 const trackSports = computed(() => store.sports.filter(s => s.format === 'track'))
 
-const sa = ref(0), sb = ref(0)
-function open(m) { active.value = m; sa.value = m.score_a ?? 0; sb.value = m.score_b ?? 0 }
+const KO_STAGES = ['半决赛', '决赛', '季军']
+const isKO = m => KO_STAGES.includes(m?.stage)
+const winnerName = m => (m.winner != null && m.winner === m.team_a ? m.teamA?.name : m.teamB?.name)
+
+const sa = ref(0), sb = ref(0), ta = ref(null), tb = ref(null)
+function open(m) { active.value = m; sa.value = m.score_a ?? 0; sb.value = m.score_b ?? 0; ta.value = null; tb.value = null }
+// 淘汰赛常规时间平分 → 必须录入加时/点球决胜比分
+const needTB = computed(() => !!active.value && isKO(active.value) && sa.value === sb.value)
 async function saveScore() {
-  await store.score(active.value.id, sa.value, sb.value)
-  toast.value = '✅ 比分已录入，积分榜已更新'
+  if (needTB.value && (!Number.isInteger(ta.value) || !Number.isInteger(tb.value) || ta.value < 0 || tb.value < 0 || ta.value === tb.value)) {
+    toast.value = '⚠️ 淘汰赛平分需录入加时/点球决胜比分，且决胜比分不能再次持平'
+    setTimeout(() => toast.value = '', 2600)
+    return
+  }
+  try {
+    await store.score(active.value.id, sa.value, sb.value, needTB.value ? ta.value : null, needTB.value ? tb.value : null)
+    toast.value = '✅ 比分已录入，积分榜已更新'
+    active.value = null
+  } catch (e) {
+    toast.value = '⚠️ ' + e.message
+  }
   setTimeout(() => toast.value = '', 2400)
-  active.value = null
 }
 
 const tr = reactive({})
@@ -62,9 +77,15 @@ const rankCls = r => r === 1 ? '#d99a00' : r === 2 ? '#90a4ae' : r === 3 ? '#c97
           </template>
           <template v-else>
             <span class="score-chip ph" v-if="m.status==='scheduled'">—</span>
-            <span class="score-chip" v-else>{{ m.score_a }}:{{ m.score_b }}</span>
+            <span class="score-chip" v-else>{{ m.score_a }}:{{ m.score_b }}<template v-if="m.tb_a != null">（决胜 {{ m.tb_a }}:{{ m.tb_b }}）</template></span>
           </template>
           <span class="t" style="text-align:right"><span class="badge">{{ m.teamB?.name }}<span class="dot" :style="{ background: store.unitOfUid(m.teamB?.unit_id)?.color }"></span></span></span>
+        </div>
+        <div v-if="active?.id === m.id && needTB" class="tbrow">
+          <span>⚔️ 常规时间平分 · 加时/点球决胜：</span>
+          <input v-model.number="ta" type="number" min="0" class="score-in" style="width:48px">
+          <b>:</b>
+          <input v-model.number="tb" type="number" min="0" class="score-in" style="width:48px">
         </div>
         <div class="row mt8" style="justify-content:flex-end">
           <button v-if="active?.id !== m.id && m.status==='scheduled'" class="btn primary sm" @click="open(m)">✍️ 录入比分</button>
@@ -72,7 +93,10 @@ const rankCls = r => r === 1 ? '#d99a00' : r === 2 ? '#90a4ae' : r === 3 ? '#c97
             <button class="btn ghost sm" @click="active=null">取消</button>
             <button class="btn green sm" @click="saveScore">保存赛果</button>
           </template>
-          <span v-else-if="m.status==='finished'" class="tag g">✔ 已结算</span>
+          <template v-else-if="m.status==='finished'">
+            <span v-if="isKO(m) && m.winner != null" class="tag y">🏆 {{ winnerName(m) }}</span>
+            <span class="tag g">✔ 已结算</span>
+          </template>
         </div>
       </div>
     </div>
@@ -101,4 +125,5 @@ const rankCls = r => r === 1 ? '#d99a00' : r === 2 ? '#90a4ae' : r === 3 ? '#c97
 
 <style scoped>
 .score-in { font-weight: 800; font-size: 15px; text-align: center; }
+.tbrow { display: flex; align-items: center; justify-content: center; gap: 6px; margin-top: 8px; padding: 7px 10px; border-radius: 10px; background: #fff7ed; border: 1px dashed var(--accent); font-size: 12px; color: var(--muted); }
 </style>

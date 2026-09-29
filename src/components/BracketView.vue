@@ -26,8 +26,8 @@ const stages = computed(() => {
     { name: '季军战', items: ms.filter(m => m.stage === '季军') }
   ]
 })
-function w(m) { return m.status === 'finished' ? (m.score_a > m.score_b ? m.teamA : m.teamB) : null }
-function l(m) { return m.status === 'finished' ? (m.score_a > m.score_b ? m.teamB : m.teamA) : null }
+function w(m) { return m.status === 'finished' && m.winner != null ? (m.winner === m.team_a ? m.teamA : m.teamB) : null }
+function l(m) { return m.status === 'finished' && m.winner != null ? (m.winner === m.team_a ? m.teamB : m.teamA) : null }
 </script>
 
 <template>
@@ -66,10 +66,10 @@ function l(m) { return m.status === 'finished' ? (m.score_a > m.score_b ? m.team
         <div class="pad" style="display:flex;flex-direction:column;gap:9px">
           <div v-for="m in st.items" :key="m.id" class="mcard" :class="{ done: m.status==='finished' }">
             <div class="mrow">
-              <span class="t" :class="{ win: m.status==='finished' && (m.score_a>m.score_b) }"><span class="badge"><span class="dot" :style="{ background: store.unitOfUid(m.teamA?.unit_id)?.color }"></span>{{ m.teamA?.name || '待定' }}</span></span>
-              <span class="score-chip" v-if="m.status==='finished'">{{ m.score_a }}:{{ m.score_b }}</span>
+              <span class="t" :class="{ win: m.winner != null && m.winner === m.team_a }"><span class="badge"><span class="dot" :style="{ background: store.unitOfUid(m.teamA?.unit_id)?.color }"></span>{{ m.teamA?.name || '待定' }}</span></span>
+              <span class="score-chip" v-if="m.status==='finished'">{{ m.score_a }}:{{ m.score_b }}<template v-if="m.tb_a != null">（决胜 {{ m.tb_a }}:{{ m.tb_b }}）</template></span>
               <span class="score-chip ph" v-else>VS</span>
-              <span class="t" :class="{ win: m.status==='finished' && (m.score_b>m.score_a) }" style="text-align:right"><span class="badge">{{ m.teamB?.name || '待定' }}<span class="dot" :style="{ background: store.unitOfUid(m.teamB?.unit_id)?.color }"></span></span></span>
+              <span class="t" :class="{ win: m.winner != null && m.winner === m.team_b }" style="text-align:right"><span class="badge">{{ m.teamB?.name || '待定' }}<span class="dot" :style="{ background: store.unitOfUid(m.teamB?.unit_id)?.color }"></span></span></span>
             </div>
           </div>
         </div>

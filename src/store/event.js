@@ -31,8 +31,9 @@ export const useEventStore = defineStore('event', {
       for (const s of this.sports) st[s.id] = await j('/api/standings/' + s.id)
       this.standings = st
     },
-    async score(mid, sa, sb) {
-      await j('/api/matches/' + mid + '/score', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ score_a: sa, score_b: sb }) })
+    async score(mid, sa, sb, tbA = null, tbB = null) {
+      const r = await j('/api/matches/' + mid + '/score', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ score_a: sa, score_b: sb, tb_a: tbA, tb_b: tbB }) })
+      if (r && r.error) throw new Error(r.error)
       await this.refresh()
     },
     async genKO(sid) { const r = await j('/api/ko/' + sid, { method: 'POST' }); await this.refresh(); return r.msg },
